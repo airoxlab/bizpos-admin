@@ -2,65 +2,28 @@
 import Sidebar from "./Sidebar";
 import { signOut } from "@/lib/auth";
 import { useRouter } from "next/navigation";
-import { LogOut, User, Bell, Calendar, Clock } from "lucide-react";
+import { LogOut, User, Calendar, Clock } from "lucide-react";
 import { useState, useEffect } from "react";
-import { supabase } from "@/lib/supabase";
+import NotificationDropdown from "../NotificationDropdown";
 
 export default function AdminLayout({ children, user }) {
   const router = useRouter();
-  const [notificationCount, setNotificationCount] = useState(0);
   const [currentTime, setCurrentTime] = useState(new Date());
 
   useEffect(() => {
-    fetchNotificationCount();
-    
-    // Set up real-time subscription for notifications
-    const channel = supabase
-      .channel('notifications-count')
-      .on('postgres_changes', 
-        { 
-          event: '*', 
-          schema: 'public', 
-          table: 'notifications' 
-        }, 
-        () => {
-          fetchNotificationCount();
-        }
-      )
-      .subscribe();
-
     // Update time every second
     const timer = setInterval(() => {
       setCurrentTime(new Date());
     }, 1000);
 
     return () => {
-      supabase.removeChannel(channel);
       clearInterval(timer);
     };
   }, []);
 
-  const fetchNotificationCount = async () => {
-    try {
-      const { count, error } = await supabase
-        .from('notifications')
-        .select('*', { count: 'exact', head: true })
-        .eq('is_read', false);
-
-      if (error) throw error;
-      setNotificationCount(count || 0);
-    } catch (error) {
-      console.error('Error fetching notification count:', error);
-    }
-  };
-
   const handleSignOut = async () => {
     await signOut();
     router.push("/auth/login");
-  };
-
-  const handleNotificationClick = () => {
-    router.push("/admin/notifications");
   };
 
   // Format date and time
@@ -111,19 +74,8 @@ export default function AdminLayout({ children, user }) {
 
             {/* Right Actions */}
             <div className="flex items-center space-x-3">
-              {/* Notifications Bell */}
-              <button
-                onClick={handleNotificationClick}
-                className="relative p-2 rounded-lg hover:bg-gray-100 dark:hover:bg-slate-700 transition-colors"
-                title="Notifications"
-              >
-                <Bell className="w-5 h-5 text-gray-600 dark:text-gray-400" />
-                {notificationCount > 0 && (
-                  <span className="absolute -top-1 -right-1 bg-red-600 text-white text-xs font-bold rounded-full h-5 w-5 flex items-center justify-center">
-                    {notificationCount > 99 ? '99+' : notificationCount}
-                  </span>
-                )}
-              </button>
+              {/* Notifications Dropdown */}
+              <NotificationDropdown />
 
               {/* User Profile */}
               <div className="flex items-center space-x-3 pl-3 border-l border-gray-200 dark:border-slate-700">

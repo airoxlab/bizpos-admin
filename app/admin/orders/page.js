@@ -332,6 +332,37 @@ const fetchOrders = async () => {
     }
   };
 
+  const handleMarkAllCompleted = async () => {
+    const pendingOrders = orders.filter(
+      o => o.order_status !== "Completed" && o.order_status !== "Cancelled"
+    );
+
+    if (pendingOrders.length === 0) {
+      toast.error("No orders to mark as completed");
+      return;
+    }
+
+    const loadingToast = toast.loading(`Marking ${pendingOrders.length} orders as completed...`);
+
+    try {
+      const { error } = await supabase
+        .from("orders")
+        .update({
+          order_status: "Completed",
+          updated_at: new Date().toISOString()
+        })
+        .in('id', pendingOrders.map(o => o.id));
+
+      if (error) throw error;
+
+      toast.success(`${pendingOrders.length} orders marked as completed!`, { id: loadingToast });
+      fetchOrders();
+    } catch (error) {
+      console.error("Error marking orders as completed:", error);
+      toast.error("Failed to mark orders as completed", { id: loadingToast });
+    }
+  };
+
   const exportToCSV = () => {
     if (orders.length === 0) {
       toast.error("No orders to export");
@@ -475,9 +506,18 @@ const fetchOrders = async () => {
             </button>
 
             <button
+              onClick={handleMarkAllCompleted}
+              disabled={orders.filter(o => o.order_status !== "Completed" && o.order_status !== "Cancelled").length === 0}
+              className="px-4 py-2 bg-green-600 hover:bg-green-700 disabled:bg-green-400 disabled:cursor-not-allowed text-white rounded-lg text-sm font-medium transition-colors flex items-center space-x-2"
+            >
+              <CheckCircle className="w-4 h-4" />
+              <span>Mark All Completed</span>
+            </button>
+
+            <button
               onClick={exportToCSV}
               disabled={orders.length === 0}
-              className="px-4 py-2 bg-green-600 hover:bg-green-700 disabled:bg-green-400 disabled:cursor-not-allowed text-white rounded-lg text-sm font-medium transition-colors flex items-center space-x-2"
+              className="px-4 py-2 bg-indigo-600 hover:bg-indigo-700 disabled:bg-indigo-400 disabled:cursor-not-allowed text-white rounded-lg text-sm font-medium transition-colors flex items-center space-x-2"
             >
               <Download className="w-4 h-4" />
               <span>Export CSV</span>
@@ -1184,10 +1224,7 @@ const fetchOrders = async () => {
               <div className="flex gap-2">
                 {selectedOrder.order_status === "Pending" && (
                   <button
-                    onClick={() => {
-                      setSelectedStatus("Preparing");
-                      setShowStatusModal(true);
-                    }}
+                    onClick={() => handleUpdateStatus("Preparing")}
                     className="flex-1 flex items-center justify-center space-x-2 px-4 py-2 bg-blue-500 hover:bg-blue-600 text-white rounded-lg transition-all font-medium"
                   >
                     <Clock className="w-4 h-4" />
@@ -1197,10 +1234,7 @@ const fetchOrders = async () => {
 
                 {selectedOrder.order_status === "Preparing" && (
                   <button
-                    onClick={() => {
-                      setSelectedStatus("Ready");
-                      setShowStatusModal(true);
-                    }}
+                    onClick={() => handleUpdateStatus("Ready")}
                     className="flex-1 flex items-center justify-center space-x-2 px-4 py-2 bg-purple-500 hover:bg-purple-600 text-white rounded-lg transition-all font-medium"
                   >
                     <CheckCircle className="w-4 h-4" />
@@ -1211,10 +1245,7 @@ const fetchOrders = async () => {
                 {(selectedOrder.order_status === "Ready" ||
                   selectedOrder.order_status === "Preparing") && (
                   <button
-                    onClick={() => {
-                      setSelectedStatus("Completed");
-                      setShowStatusModal(true);
-                    }}
+                    onClick={() => handleUpdateStatus("Completed")}
                     className="flex-1 flex items-center justify-center space-x-2 px-4 py-2 bg-green-500 hover:bg-green-600 text-white rounded-lg transition-all font-medium"
                   >
                     <CheckCircle className="w-4 h-4" />

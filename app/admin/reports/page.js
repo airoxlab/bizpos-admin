@@ -194,7 +194,7 @@ export default function AdminReportsPage() {
         .select(
           `
           *,
-          customers (id, full_name, fullname, phone),
+          customers (id, full_name, phone),
           order_items (id, product_name, variant_name, quantity, final_price, total_price)
         `
         )

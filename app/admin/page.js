@@ -52,6 +52,7 @@ ChartJS.register(
 export default function AdminDashboard() {
   const [user, setUser] = useState(null);
   const [loading, setLoading] = useState(true);
+  const [dateFilter, setDateFilter] = useState("today");
   const [stats, setStats] = useState({
     totalProducts: 0,
     totalRevenue: 0,
@@ -72,6 +73,12 @@ export default function AdminDashboard() {
   useEffect(() => {
     initializeDashboard();
   }, []);
+
+  useEffect(() => {
+    if (user) {
+      fetchAllDashboardData(user);
+    }
+  }, [dateFilter]);
 
   const initializeDashboard = async () => {
     try {
@@ -101,6 +108,36 @@ export default function AdminDashboard() {
       fetchExpensesData(userData),
       fetchTopProducts(userData),
     ]);
+  };
+
+  const getDateRange = () => {
+    const today = new Date();
+    let startDate, endDate;
+
+    switch (dateFilter) {
+      case "today":
+        startDate = endDate = today.toISOString().split("T")[0];
+        break;
+      case "yesterday":
+        const yesterday = new Date(today);
+        yesterday.setDate(yesterday.getDate() - 1);
+        startDate = endDate = yesterday.toISOString().split("T")[0];
+        break;
+      case "thisWeek":
+        const weekStart = new Date(today);
+        weekStart.setDate(today.getDate() - today.getDay());
+        startDate = weekStart.toISOString().split("T")[0];
+        endDate = today.toISOString().split("T")[0];
+        break;
+      case "thisMonth":
+        startDate = new Date(today.getFullYear(), today.getMonth(), 1).toISOString().split("T")[0];
+        endDate = today.toISOString().split("T")[0];
+        break;
+      default:
+        startDate = endDate = today.toISOString().split("T")[0];
+    }
+
+    return { startDate, endDate };
   };
 
   const handleRefresh = async () => {
@@ -136,29 +173,35 @@ export default function AdminDashboard() {
 
   const fetchStats = async (userData) => {
     try {
+      const { startDate, endDate } = getDateRange();
+
       // Total Products
       const { count: productsCount } = await supabase
         .from("products")
         .select("*", { count: "exact", head: true })
         .eq("user_id", userData.id);
 
-      // Total Revenue (Completed Orders)
+      // Total Revenue (Completed Orders) - filtered by date
       const { data: ordersData } = await supabase
         .from("orders")
         .select("total_amount")
         .eq("user_id", userData.id)
-        .eq("order_status", "Completed");
+        .eq("order_status", "Completed")
+        .gte("order_date", startDate)
+        .lte("order_date", endDate);
 
       const totalRevenue = ordersData?.reduce(
         (sum, order) => sum + parseFloat(order.total_amount),
         0
       ) || 0;
 
-      // Total Orders
+      // Total Orders - filtered by date
       const { count: ordersCount } = await supabase
         .from("orders")
         .select("*", { count: "exact", head: true })
-        .eq("user_id", userData.id);
+        .eq("user_id", userData.id)
+        .gte("order_date", startDate)
+        .lte("order_date", endDate);
 
       // Total Customers
       const { count: customersCount } = await supabase
@@ -166,16 +209,13 @@ export default function AdminDashboard() {
         .select("*", { count: "exact", head: true })
         .eq("user_id", userData.id);
 
-      // Total Expenses (This Month)
-      const startOfMonth = new Date();
-      startOfMonth.setDate(1);
-      startOfMonth.setHours(0, 0, 0, 0);
-
+      // Total Expenses - filtered by date
       const { data: expensesData } = await supabase
         .from("expenses")
         .select("total_amount")
         .eq("user_id", userData.id)
-        .gte("expense_date", startOfMonth.toISOString().split("T")[0]);
+        .gte("expense_date", startDate)
+        .lte("expense_date", endDate);
 
       const totalExpenses = expensesData?.reduce(
         (sum, expense) => sum + parseFloat(expense.total_amount),
@@ -185,11 +225,11 @@ export default function AdminDashboard() {
       // Low Stock Items
       const { data: inventoryItems } = await supabase
         .from("inventory_items")
-        .select("current_stock, minimum_stock_level")
+        .select("current_stock, minimum_stock")
         .eq("user_id", userData.id);
 
       const lowStockItems = inventoryItems?.filter(
-        (item) => item.current_stock <= (item.minimum_stock_level || 0)
+        (item) => item.current_stock <= (item.minimum_stock || 0)
       ).length || 0;
 
       setStats({
@@ -618,20 +658,31 @@ const fetchRecentOrders = async (userData) => {
               Dashboard Overview
             </h1>
             <p className="text-gray-600 dark:text-gray-400">
-              Welcome back, {user?.name || "Admin"}! Here's what's happening with
-              your business today.
+              Welcome back, {user?.name || "Admin"}! Here's what's happening with your business.
             </p>
           </div>
-          <button
-            onClick={handleRefresh}
-            disabled={refreshing}
-            className="flex items-center space-x-2 px-4 py-2 bg-indigo-600 hover:bg-indigo-700 disabled:bg-indigo-400 text-white rounded-lg transition-colors"
-          >
-            <RefreshCw
-              className={`w-4 h-4 ${refreshing ? "animate-spin" : ""}`}
-            />
-            <span>{refreshing ? "Refreshing..." : "Refresh"}</span>
-          </button>
+          <div className="flex items-center gap-3">
+            <select
+              value={dateFilter}
+              onChange={(e) => setDateFilter(e.target.value)}
+              className="px-4 py-2 bg-white dark:bg-slate-800 border border-gray-300 dark:border-slate-600 text-gray-900 dark:text-white rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500"
+            >
+              <option value="today">Today</option>
+              <option value="yesterday">Yesterday</option>
+              <option value="thisWeek">This Week</option>
+              <option value="thisMonth">This Month</option>
+            </select>
+            <button
+              onClick={handleRefresh}
+              disabled={refreshing}
+              className="flex items-center space-x-2 px-4 py-2 bg-indigo-600 hover:bg-indigo-700 disabled:bg-indigo-400 text-white rounded-lg transition-colors"
+            >
+              <RefreshCw
+                className={`w-4 h-4 ${refreshing ? "animate-spin" : ""}`}
+              />
+              <span>{refreshing ? "Refreshing..." : "Refresh"}</span>
+            </button>
+          </div>
         </div>
 
         {/* Stats Grid */}
@@ -890,64 +941,6 @@ const fetchRecentOrders = async (userData) => {
                 ))
               )}
             </div>
-          </div>
-        </div>
-
-        {/* Recent Orders */}
-        <div className="bg-white dark:bg-slate-800 rounded-lg border border-gray-200 dark:border-slate-700 p-6">
-          <div className="mb-4">
-            <h3 className="text-lg font-semibold text-gray-900 dark:text-white flex items-center">
-              <ShoppingBag className="w-5 h-5 mr-2 text-indigo-600" />
-              Recent Orders
-            </h3>
-            <p className="text-sm text-gray-600 dark:text-gray-400">
-              Latest customer orders
-            </p>
-          </div>
-          <div className="space-y-3">
-            {recentOrders.length === 0 ? (
-              <div className="text-center py-8 text-gray-400">
-                No recent orders
-              </div>
-            ) : (
-              recentOrders.map((order) => (
-                <div
-                  key={order.id}
-                  className="flex items-center justify-between p-4 bg-gray-50 dark:bg-slate-700 rounded-lg hover:bg-gray-100 dark:hover:bg-slate-600 transition-colors"
-                >
-                  <div className="flex items-center space-x-4">
-                    <div className="w-12 h-12 bg-gradient-to-br from-indigo-500 to-purple-500 rounded-lg flex items-center justify-center">
-                      <Receipt className="w-6 h-6 text-white" />
-                    </div>
-                    <div>
-                      <p className="font-semibold text-gray-900 dark:text-white">
-                        #{order.order_number}
-                      </p>
-                      <p className="text-sm text-gray-600 dark:text-gray-400">
-                        {order.customers
-                          ? `${order.customers.first_name} ${order.customers.last_name}`
-                          : "Walk-in Customer"}
-                      </p>
-                      <p className="text-xs text-gray-500 dark:text-gray-500">
-                        {order.order_date} • {order.order_time}
-                      </p>
-                    </div>
-                  </div>
-                  <div className="text-right">
-                    <p className="font-bold text-gray-900 dark:text-white mb-1">
-                      PKR {parseFloat(order.total_amount).toLocaleString()}
-                    </p>
-                    <span
-                      className={`text-xs px-3 py-1 rounded-full font-medium ${getStatusColor(
-                        order.order_status
-                      )}`}
-                    >
-                      {order.order_status}
-                    </span>
-                  </div>
-                </div>
-              ))
-            )}
           </div>
         </div>
       </div>

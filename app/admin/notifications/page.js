@@ -1,19 +1,20 @@
 "use client";
 import React, { useState, useEffect } from 'react';
-import { 
-  Bell, 
-  AlertTriangle, 
-  Calendar, 
-  CheckCircle, 
-  Trash2, 
-  Mail, 
-  Plus, 
-  X, 
+import {
+  Bell,
+  AlertTriangle,
+  Calendar,
+  CheckCircle,
+  Trash2,
+  Mail,
+  Plus,
+  X,
   Settings,
   Package,
   Filter,
   Inbox,
-  Check
+  Check,
+  Clock
 } from 'lucide-react';
 import { supabase } from '@/lib/supabase';
 import { useRouter } from 'next/navigation';
@@ -24,6 +25,7 @@ export default function NotificationsPage() {
 
   const [notifications, setNotifications] = useState([]);
   const [loading, setLoading] = useState(true);
+  const [initialLoad, setInitialLoad] = useState(true);
   const [currentUser, setCurrentUser] = useState(null);
   const [emailSettings, setEmailSettings] = useState({
     enabled: false,
@@ -43,6 +45,7 @@ export default function NotificationsPage() {
     critical: 0,
     warnings: 0
   });
+  const [showDeleteAllModal, setShowDeleteAllModal] = useState(false);
 
   useEffect(() => {
     console.log('🚀 Component mounted - Setting up listeners');
@@ -116,9 +119,14 @@ export default function NotificationsPage() {
   const fetchNotifications = async (userId) => {
     if (!userId) return;
 
-    setLoading(true);
+    // Only show loading spinner on initial page load, not on filter changes
+    if (initialLoad) {
+      setLoading(true);
+    }
+
     try {
-      let query = supabase
+      // Always fetch all notifications for accurate stats
+      const { data: allData, error: allError } = await supabase
         .from('notifications')
         .select(`
           *,
@@ -134,23 +142,29 @@ export default function NotificationsPage() {
         .eq('user_id', userId)
         .order('created_at', { ascending: false });
 
+      if (allError) throw allError;
+
+      // Calculate stats from all notifications
+      calculateStats(allData || []);
+
+      // Filter for display
+      let filteredData = allData || [];
       if (filter === 'unread') {
-        query = query.eq('is_read', false);
+        filteredData = filteredData.filter(n => !n.is_read);
       } else if (filter === 'low_stock') {
-        query = query.in('type', ['low_stock', 'critical_stock']);
+        filteredData = filteredData.filter(n => ['low_stock', 'critical_stock'].includes(n.type));
       } else if (filter === 'expiry') {
-        query = query.eq('type', 'expiry_alert');
+        filteredData = filteredData.filter(n => n.type === 'expiry_alert');
       }
 
-      const { data, error } = await query;
-      if (error) throw error;
-
-      setNotifications(data || []);
-      calculateStats(data || []);
+      setNotifications(filteredData);
     } catch (error) {
       console.error('❌ Error fetching notifications:', error);
     } finally {
-      setLoading(false);
+      if (initialLoad) {
+        setLoading(false);
+        setInitialLoad(false);
+      }
     }
   };
 
@@ -442,18 +456,17 @@ export default function NotificationsPage() {
   };
 
   const handleDeleteAll = async () => {
-    if (!confirm('Are you sure you want to delete all notifications?')) return;
-
     try {
       const { error } = await supabase
         .from('notifications')
         .delete()
-        .neq('id', '00000000-0000-0000-0000-000000000000');
+        .eq('user_id', currentUser.id);
 
       if (error) throw error;
-      
+
       setNotifications([]);
       calculateStats([]);
+      setShowDeleteAllModal(false);
     } catch (error) {
       console.error('Error deleting all notifications:', error);
     }
@@ -600,65 +613,10 @@ export default function NotificationsPage() {
 
   return (
     <div className="min-h-screen bg-gray-50 p-6">
-      <div >
-        <div className="mb-8">
-          <div className="flex items-center justify-between">
-            <div>
-              <h1 className="text-3xl font-bold text-gray-900 mb-2">Notifications</h1>
-              <p className="text-gray-600">Manage inventory alerts and email notifications</p>
-            </div>
-          
-          </div>
-        </div>
-
-        <div className="grid grid-cols-1 md:grid-cols-4 gap-6 mb-8">
-          <div className="bg-white rounded-lg shadow p-6">
-            <div className="flex items-center justify-between">
-              <div>
-                <p className="text-sm text-gray-600 mb-1">Total Notifications</p>
-                <p className="text-2xl font-bold text-gray-900">{stats.total}</p>
-              </div>
-              <div className="bg-blue-100 p-3 rounded-full">
-                <Bell className="w-6 h-6 text-blue-600" />
-              </div>
-            </div>
-          </div>
-
-          <div className="bg-white rounded-lg shadow p-6">
-            <div className="flex items-center justify-between">
-              <div>
-                <p className="text-sm text-gray-600 mb-1">Unread</p>
-                <p className="text-2xl font-bold text-blue-600">{stats.unread}</p>
-              </div>
-              <div className="bg-blue-100 p-3 rounded-full">
-                <Inbox className="w-6 h-6 text-blue-600" />
-              </div>
-            </div>
-          </div>
-
-          <div className="bg-white rounded-lg shadow p-6">
-            <div className="flex items-center justify-between">
-              <div>
-                <p className="text-sm text-gray-600 mb-1">Critical Alerts</p>
-                <p className="text-2xl font-bold text-red-600">{stats.critical}</p>
-              </div>
-              <div className="bg-red-100 p-3 rounded-full">
-                <AlertTriangle className="w-6 h-6 text-red-600" />
-              </div>
-            </div>
-          </div>
-
-          <div className="bg-white rounded-lg shadow p-6">
-            <div className="flex items-center justify-between">
-              <div>
-                <p className="text-sm text-gray-600 mb-1">Warnings</p>
-                <p className="text-2xl font-bold text-yellow-600">{stats.warnings}</p>
-              </div>
-              <div className="bg-yellow-100 p-3 rounded-full">
-                <AlertTriangle className="w-6 h-6 text-yellow-600" />
-              </div>
-            </div>
-          </div>
+      <div>
+        <div className="mb-6">
+          <h1 className="text-3xl font-bold text-gray-900 mb-2">Notifications</h1>
+          <p className="text-gray-600">Inventory alerts for your restaurant</p>
         </div>
 
         {showEmailSettings && (
@@ -880,7 +838,7 @@ export default function NotificationsPage() {
               )}
               {notifications.length > 0 && (
                 <button
-                  onClick={handleDeleteAll}
+                  onClick={() => setShowDeleteAllModal(true)}
                   className="flex items-center gap-2 px-4 py-2 border border-red-300 text-red-700 rounded-lg hover:bg-red-50 transition-colors"
                 >
                   <Trash2 className="w-4 h-4" />
@@ -892,12 +850,17 @@ export default function NotificationsPage() {
         </div>
 
         <div className="bg-white rounded-lg shadow overflow-hidden">
-          {notifications.length === 0 ? (
+          {loading ? (
+            <div className="text-center py-16">
+              <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-indigo-600 mx-auto mb-4"></div>
+              <p className="text-gray-500">Loading notifications...</p>
+            </div>
+          ) : notifications.length === 0 ? (
             <div className="text-center py-16">
               <Bell className="w-16 h-16 text-gray-300 mx-auto mb-4" />
               <h3 className="text-lg font-medium text-gray-900 mb-2">No Notifications</h3>
               <p className="text-gray-500">
-                {filter === 'all' 
+                {filter === 'all'
                   ? "You're all caught up! No notifications at the moment."
                   : `No ${filter.replace('_', ' ')} notifications.`}
               </p>
@@ -918,49 +881,46 @@ export default function NotificationsPage() {
                     </div>
 
                     <div className="flex-1 min-w-0">
-                      <div className="flex items-start justify-between gap-4 mb-2">
+                      <div className="flex items-start justify-between gap-4 mb-3">
                         <div className="flex-1">
-                          <div className="flex items-center gap-2 mb-1">
-                            <h3 className="text-base font-semibold text-gray-900">
+                          <div className="flex items-center gap-2 mb-2">
+                            <h3 className="text-lg font-bold text-gray-900">
                               {notification.title}
                             </h3>
-                            {!notification.is_read ? (
-                              <span className="w-2 h-2 bg-blue-600 rounded-full"></span>
-                            ) : (
-                              <span className="flex items-center gap-1 text-xs text-green-600 font-medium">
-                                <Check className="w-3 h-3" />
-                                Read
-                              </span>
+                            {!notification.is_read && (
+                              <span className="w-2.5 h-2.5 bg-blue-600 rounded-full"></span>
                             )}
                           </div>
-                          <p className="text-sm text-gray-600 mb-2">
+                          <p className="text-base text-gray-700 mb-3">
                             {notification.message}
                           </p>
-                          
+
                           {notification.inventory_items && (
-                            <div className="flex items-center gap-4 text-xs text-gray-500 mt-2">
-                              <span className="flex items-center gap-1">
-                                <Package className="w-3 h-3" />
+                            <div className="bg-gray-50 border border-gray-200 rounded-lg p-3 space-y-1.5">
+                              <div className="flex items-center gap-2 text-sm font-semibold text-gray-900">
+                                <Package className="w-4 h-4 text-blue-600" />
                                 {notification.inventory_items.name}
-                              </span>
-                              <span>SKU: {notification.inventory_items.sku}</span>
-                              {notification.type !== 'expiry_alert' && (
-                                <span>
-                                  Current: {notification.inventory_items.current_stock}{' '}
-                                  {notification.inventory_items.units?.abbreviation}
-                                </span>
-                              )}
+                              </div>
+                              <div className="flex items-center gap-4 text-sm text-gray-600">
+                                <span>SKU: {notification.inventory_items.sku}</span>
+                                {notification.type !== 'expiry_alert' && (
+                                  <span className="font-medium">
+                                    Stock: {notification.inventory_items.current_stock}{' '}
+                                    {notification.inventory_items.units?.abbreviation || 'units'}
+                                  </span>
+                                )}
+                              </div>
                             </div>
                           )}
                         </div>
 
-                        <span className={`px-3 py-1 text-xs font-medium rounded-full border ${getSeverityColor(notification.severity)}`}>
+                        <span className={`px-3 py-1.5 text-sm font-semibold rounded-lg ${getSeverityColor(notification.severity)}`}>
                           {notification.severity.charAt(0).toUpperCase() + notification.severity.slice(1)}
                         </span>
                       </div>
 
-                      <div className="flex items-center justify-between mt-3">
-                        <span className="text-xs text-gray-500">
+                      <div className="flex items-center justify-between mt-4 pt-3 border-t border-gray-200">
+                        <span className="text-sm text-gray-500">
                           {new Date(notification.created_at).toLocaleString('en-US', {
                             month: 'short',
                             day: 'numeric',
@@ -970,17 +930,17 @@ export default function NotificationsPage() {
                           })}
                         </span>
 
-                        <div className="flex items-center gap-2">
+                        <div className="flex items-center gap-3">
                           {!notification.is_read && (
                             <button
                               onClick={(e) => {
                                 e.stopPropagation();
                                 handleMarkAsRead(notification.id);
                               }}
-                              className="text-xs text-blue-600 hover:text-blue-800 font-medium flex items-center gap-1"
+                              className="px-3 py-1.5 text-sm bg-blue-600 hover:bg-blue-700 text-white font-medium rounded-lg flex items-center gap-1.5 transition-colors"
                             >
-                              <CheckCircle className="w-3 h-3" />
-                              Mark as read
+                              <CheckCircle className="w-4 h-4" />
+                              Mark Read
                             </button>
                           )}
                           <button
@@ -988,10 +948,11 @@ export default function NotificationsPage() {
                               e.stopPropagation();
                               handleDelete(notification.id);
                             }}
-                            className="text-red-600 hover:text-red-800 transition-colors"
+                            className="px-3 py-1.5 bg-red-100 hover:bg-red-200 text-red-700 rounded-lg transition-colors flex items-center gap-1.5"
                             title="Delete"
                           >
                             <Trash2 className="w-4 h-4" />
+                            <span className="text-sm font-medium">Delete</span>
                           </button>
                         </div>
                       </div>
@@ -1002,6 +963,37 @@ export default function NotificationsPage() {
             </div>
           )}
         </div>
+
+        {/* Delete All Modal */}
+        {showDeleteAllModal && (
+          <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
+            <div className="bg-white rounded-lg shadow-xl max-w-md w-full p-6">
+              <div className="flex items-center gap-3 mb-4">
+                <div className="bg-red-100 p-3 rounded-full">
+                  <AlertTriangle className="w-6 h-6 text-red-600" />
+                </div>
+                <h3 className="text-xl font-bold text-gray-900">Delete All Notifications?</h3>
+              </div>
+              <p className="text-gray-600 mb-6">
+                Are you sure you want to delete all notifications? This action cannot be undone.
+              </p>
+              <div className="flex gap-3">
+                <button
+                  onClick={() => setShowDeleteAllModal(false)}
+                  className="flex-1 px-4 py-2.5 border border-gray-300 text-gray-700 rounded-lg hover:bg-gray-50 font-medium transition-colors"
+                >
+                  Cancel
+                </button>
+                <button
+                  onClick={handleDeleteAll}
+                  className="flex-1 px-4 py-2.5 bg-red-600 text-white rounded-lg hover:bg-red-700 font-medium transition-colors"
+                >
+                  Delete All
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
       </div>
     </div>
   );
